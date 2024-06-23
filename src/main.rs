@@ -4,6 +4,7 @@ use sqlx::Mssql;
 use sqlx::Pool;
 use jsonwebtoken::{encode, Header, EncodingKey};
 use chrono::Utc;
+use argon2::{self, Config};
 
 #[derive(Debug, Deserialize)]
 struct SignupData {
@@ -44,16 +45,6 @@ async fn insert_information(pool: &sqlx::Pool<Mssql>, user_id: i32, email: &str)
     Ok(())
 }
 
-async fn get_user_id(pool: &Pool<Mssql>, username: &str, password: &str) -> Result<Option<i32>, sqlx::Error> {
-    let row: Option<(i32,)> = sqlx::query_as("SELECT user_id FROM login_credentials WHERE username = @p1 AND password = @p2")
-        .bind(username)
-        .bind(password)
-        .fetch_optional(pool)
-        .await?;
-    
-    Ok(row.map(|r| r.0))
-}
-
 fn generate_jwt(user_id: i32, secret: &str) -> Result<String, Box<dyn std::error::Error>> {
     let expiration = Utc::now()
         .checked_add_signed(chrono::Duration::seconds(3600))
@@ -74,11 +65,19 @@ async fn signup(signup_data: web::Json<SignupData>, db_pool: web::Data<sqlx::Poo
     println!("Received signup request: {:?}", signup_data);
 
     let username = &signup_data.username;
-    let password = &signup_data.password;
+    let plaintext_password = &signup_data.password;
     let email = &signup_data.email;
 
-    match insert_credentials(db_pool.get_ref(), username, password).await {
+    // Hash the password using Argon2
+    let config = Config::default();
+    let salt = b"randomsalt"; // Generate a random salt for each user in production
+    let hashed_password = argon2::hash_encoded(plaintext_password.as_bytes(), salt, &config)
+        .expect("Failed to hash password");
+
+    // Attempt to insert hashed credentials into the database
+    match insert_credentials(db_pool.get_ref(), username, &hashed_password).await {
         Ok(user_id) => {
+            // Insert additional information if credential insertion succeeds
             match insert_information(db_pool.get_ref(), user_id, email).await {
                 Ok(_) => {
                     let token = generate_jwt(user_id, "secret").unwrap();
@@ -97,6 +96,7 @@ async fn signup(signup_data: web::Json<SignupData>, db_pool: web::Data<sqlx::Poo
     }
 }
 
+
 #[post("/login")]
 async fn login(login_data: web::Json<LoginData>, db_pool: web::Data<sqlx::Pool<Mssql>>) -> HttpResponse {
     println!("Received login request: {:?}", login_data);
@@ -104,10 +104,18 @@ async fn login(login_data: web::Json<LoginData>, db_pool: web::Data<sqlx::Pool<M
     let username = &login_data.username;
     let password = &login_data.password;
 
-    match get_user_id(db_pool.get_ref(), username, password).await {
-        Ok(Some(user_id)) => {
-            let token = generate_jwt(user_id, "secret").unwrap();
-            HttpResponse::Ok().json(token)
+    // Retrieve hashed password from the database
+    match get_user_credentials(db_pool.get_ref(), username).await {
+        Ok(Some((user_id, hashed_password))) => {
+            // Verify the provided password using Argon2
+            if argon2::verify_encoded(&hashed_password, password.as_bytes()).unwrap_or(false) {
+                // Passwords match, generate JWT token
+                let token = generate_jwt(user_id, "secret").unwrap();
+                HttpResponse::Ok().json(token)
+            } else {
+                // Passwords don't match
+                HttpResponse::Unauthorized().body("Invalid credentials")
+            }
         },
         Ok(None) => HttpResponse::Unauthorized().body("Invalid credentials"),
         Err(e) => {
@@ -116,6 +124,16 @@ async fn login(login_data: web::Json<LoginData>, db_pool: web::Data<sqlx::Pool<M
         }
     }
 }
+
+async fn get_user_credentials(pool: &sqlx::Pool<Mssql>, username: &str) -> Result<Option<(i32, String)>, sqlx::Error> {
+    let row: Option<(i32, String)> = sqlx::query_as("SELECT user_id, password FROM login_credentials WHERE username = @p1")
+        .bind(username)
+        .fetch_optional(pool)
+        .await?;
+
+    Ok(row)
+}
+
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
