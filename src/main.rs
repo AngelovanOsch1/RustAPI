@@ -11,13 +11,10 @@ use crate::controllers::auth_controllers::{signup, login};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    // Load environment variables from .env file
     dotenv::dotenv().expect("Failed to load .env file");
 
-    // Establish database connection pool
     let pool = establish_connection().await;
 
-    // Start Actix Web server
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(pool.clone()))
