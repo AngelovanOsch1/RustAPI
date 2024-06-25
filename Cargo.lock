@@ -9,6 +9,7 @@ dependencies = [
  "actix-rt",
  "actix-web",
  "chrono",
+ "dotenv",
  "jsonwebtoken",
  "rust-argon2",
  "serde",
