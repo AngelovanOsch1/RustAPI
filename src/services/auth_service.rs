@@ -3,6 +3,7 @@ use sqlx::Mssql;
 use crate::repositories::auth_repository::{insert_credentials, insert_information, get_user_credentials};
 use crate::utils::jwt::generate_jwt;
 use argon2::{self, Config};
+use rand::Rng;
 
 #[derive(Debug, Deserialize)]
 pub struct SignupData {
@@ -23,8 +24,12 @@ pub async fn signup_service(signup_data: SignupData, pool: &sqlx::Pool<Mssql>) -
     let email = &signup_data.email;
 
     let config = Config::default();
-    let salt = b"randomsalt";
-    let hashed_password = argon2::hash_encoded(plaintext_password.as_bytes(), salt, &config)?;
+    
+    let mut rng = rand::thread_rng();
+    let mut salt = [0u8; 16];
+    rng.fill(&mut salt);
+    
+    let hashed_password = argon2::hash_encoded(plaintext_password.as_bytes(), &salt, &config)?;
 
     let user_id = insert_credentials(pool, username, &hashed_password).await?;
     insert_information(pool, user_id, email).await?;
