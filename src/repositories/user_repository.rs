@@ -16,11 +16,12 @@ pub async fn get_all_users(pool: &sqlx::Pool<Mssql>, current_user_id: i32) -> Re
         ON 
             login_credentials.user_id = user_information.user_id
         WHERE 
-            login_credentials.user_id != $1;
+            login_credentials.user_id != @p1;
         "#,
-        current_user_id
+        current_user_id as i32
     )
     .fetch_all(pool)
     .await?;
+
     Ok(users)
 }
