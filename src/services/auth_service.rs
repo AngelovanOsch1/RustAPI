@@ -1,7 +1,7 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sqlx::Mssql;
 use crate::repositories::auth_repository::{insert_credentials, insert_information, get_user_credentials};
-use crate::utils::jwt::generate_jwt;
+use crate::utils::jwt::{generate_access_token, generate_refresh_token};
 use argon2::{self, Config};
 use rand::Rng;
 
@@ -18,7 +18,13 @@ pub struct LoginData {
     pub password: String,
 }
 
-pub async fn signup_service(signup_data: SignupData, pool: &sqlx::Pool<Mssql>) -> Result<String, Box<dyn std::error::Error>> {
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Tokens {
+    pub access_token: String,
+    pub refresh_token: String,
+}
+
+pub async fn signup_service(signup_data: SignupData, pool: &sqlx::Pool<Mssql>) -> Result<Tokens, Box<dyn std::error::Error>> {
     let username = &signup_data.username;
     let plaintext_password = &signup_data.password;
     let email = &signup_data.email;
@@ -34,11 +40,13 @@ pub async fn signup_service(signup_data: SignupData, pool: &sqlx::Pool<Mssql>) -
     let user_id = insert_credentials(pool, username, &hashed_password).await?;
     insert_information(pool, user_id, email).await?;
 
-    let token = generate_jwt(user_id)?;
-    Ok(token)
+    let access_token = generate_access_token(user_id)?;
+    let refresh_token = generate_refresh_token(user_id)?;
+
+    Ok(Tokens { access_token, refresh_token })
 }
 
-pub async fn login_service(login_data: LoginData, pool: &sqlx::Pool<Mssql>) -> Result<String, Box<dyn std::error::Error>> {
+pub async fn login_service(login_data: LoginData, pool: &sqlx::Pool<Mssql>) -> Result<Tokens, Box<dyn std::error::Error>> {
     let username = &login_data.username;
     let password = &login_data.password;
 
@@ -51,6 +59,8 @@ pub async fn login_service(login_data: LoginData, pool: &sqlx::Pool<Mssql>) -> R
         return Err("Invalid credentials".into());
     }
 
-    let token = generate_jwt(user_id)?;
-    Ok(token)
+    let access_token = generate_access_token(user_id)?;
+    let refresh_token = generate_refresh_token(user_id)?;
+
+    Ok(Tokens { access_token, refresh_token })
 }
