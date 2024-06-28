@@ -14,7 +14,6 @@ use crate::controllers::user_controller::get_users;
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     let pool = establish_connection().await;
-    run_migrations(&pool).await;
 
     HttpServer::new(move || {
         App::new()
