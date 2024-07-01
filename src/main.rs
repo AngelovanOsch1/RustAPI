@@ -7,7 +7,8 @@ mod errors;
 mod utils;
 
 use actix_web::{web, App, HttpServer};
-use crate::config::database::{establish_connection, run_migrations};
+use controllers::test::save_file;
+use crate::config::database::establish_connection;
 use crate::controllers::auth_controllers::{signup, login};
 use crate::controllers::user_controller::get_users;
 
@@ -21,6 +22,7 @@ async fn main() -> std::io::Result<()> {
             .service(signup)
             .service(login)
             .service(get_users)
+            .service(save_file)
     })
     .bind(("127.0.0.1", 8080))?
     .run()
