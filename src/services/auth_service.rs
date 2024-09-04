@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sqlx::Mssql;
-use crate::repositories::auth_repository::{insert_credentials, insert_information, get_user_credentials};
+use crate::models::user::User;
+use crate::repositories::auth_repository::{get_user_credentials, get_user_model, insert_credentials, insert_information, set_user_online};
 use crate::utils::jwt::{generate_access_token, generate_refresh_token};
 use argon2::{self, Config};
 use rand::Rng;
@@ -22,6 +23,7 @@ pub struct LoginData {
 pub struct Tokens {
     pub access_token: String,
     pub refresh_token: String,
+    pub user_model: User,
 }
 
 pub async fn signup_service(signup_data: SignupData, pool: &sqlx::Pool<Mssql>) -> Result<Tokens, Box<dyn std::error::Error>> {
@@ -40,10 +42,15 @@ pub async fn signup_service(signup_data: SignupData, pool: &sqlx::Pool<Mssql>) -
     let user_id = insert_credentials(pool, username, &hashed_password).await?;
     insert_information(pool, user_id, email).await?;
 
+    let user_model = match get_user_model(pool, user_id).await? {
+        Some(user) => user,
+        None => return Err("User not found".into()),
+    };
+
     let access_token = generate_access_token(user_id)?;
     let refresh_token = generate_refresh_token(user_id)?;
 
-    Ok(Tokens { access_token, refresh_token })
+    Ok(Tokens { access_token, refresh_token, user_model })
 }
 
 pub async fn login_service(login_data: LoginData, pool: &sqlx::Pool<Mssql>) -> Result<Tokens, Box<dyn std::error::Error>> {
@@ -59,8 +66,23 @@ pub async fn login_service(login_data: LoginData, pool: &sqlx::Pool<Mssql>) -> R
         return Err("Invalid credentials".into());
     }
 
+    let user_model = match get_user_model(pool, user_id).await? {
+        Some(user) => user,
+        None => return Err("User not found".into()),
+    };
+
     let access_token = generate_access_token(user_id)?;
     let refresh_token = generate_refresh_token(user_id)?;
 
-    Ok(Tokens { access_token, refresh_token })
+    Ok(Tokens { access_token, refresh_token, user_model })
 }
+
+pub async fn logout_service(
+    user_id: i32,
+    pool: &sqlx::Pool<Mssql>
+) -> Result<(), Box<dyn std::error::Error>> {
+    set_user_online(pool, false, user_id).await?;
+ 
+    Ok(())
+}
+
